@@ -113,7 +113,8 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         }
       }
     }
-    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, getLocale(locale))
+
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, getLocale(opts.getString("locale")))
     speech?.startListening(intent)
   }
 
