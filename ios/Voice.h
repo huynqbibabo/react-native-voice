@@ -1,5 +1,6 @@
 #import <React/RCTBridgeModule.h>
+#import <React/RCTEventEmitter.h>
 
-@interface Voice : NSObject <RCTBridgeModule>
+@interface Voice : RCTEventEmitter <RCTBridgeModule>
 
 @end

@@ -1,32 +1,99 @@
-import * as React from 'react';
+import Speecher from 'react-native-voice';
+import React, { useEffect, useState } from 'react';
+import {
+  Button,
+  FlatList,
+  PermissionsAndroid,
+  SafeAreaView,
+  StyleSheet,
+  View,
+} from 'react-native';
+import { Item } from './Item';
 
-import { StyleSheet, View, Text } from 'react-native';
-import Voice from 'react-native-voice';
+const App = () => {
+  useEffect(() => {
+    PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, {
+      title: 'Cool Photo App Camera Permission',
+      message:
+        'Cool Photo App needs access to your camera ' +
+        'so you can take awesome pictures.',
+      buttonNeutral: 'Ask Me Later',
+      buttonNegative: 'Cancel',
+      buttonPositive: 'OK',
+    });
+    PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+      {
+        title: 'Cool Photo App Camera Permission',
+        message:
+          'Cool Photo App needs access to your camera ' +
+          'so you can take awesome pictures.',
+        buttonNeutral: 'Ask Me Later',
+        buttonNegative: 'Cancel',
+        buttonPositive: 'OK',
+      }
+    );
 
-
-export default function App() {
-  const [result, setResult] = React.useState<number | undefined>();
-
-  React.useEffect(() => {
-    Voice.multiply(3, 7).then(setResult);
+    PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+      {
+        title: 'Cool Photo App Camera Permission',
+        message:
+          'Cool Photo App needs access to your camera ' +
+          'so you can take awesome pictures.',
+        buttonNeutral: 'Ask Me Later',
+        buttonNegative: 'Cancel',
+        buttonPositive: 'OK',
+      }
+    );
   }, []);
 
+  const [files] = useState<any[]>([
+    {
+      text: 'Cool Photo App needs access to your camera',
+    },
+    {
+      text: 'This is beta functionality.',
+    },
+    {
+      text: 'pictures',
+    },
+  ]);
+
+  // const [state, setState] = useState<any[]>([]);
+  useEffect(() => {
+    console.log('speech recognition');
+    return () => {
+      Speecher.release();
+    };
+  }, []);
+
+  const clear = async () => {
+    // await Speecher.clear();
+  };
+
   return (
-    <View style={styles.container}>
-      <Text>Result: {result}</Text>
-    </View>
+    <SafeAreaView style={styles.container}>
+      <View>
+        <Button title="Clear all" onPress={clear} color={'#4F83CC'} />
+      </View>
+      <FlatList
+        // extraData={state.length}
+        style={{ flex: 1 }}
+        data={files}
+        keyExtractor={(_item, index) => index + ''}
+        renderItem={({ item }) => <Item text={item.text} />}
+      />
+    </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
-  },
-  box: {
-    width: 60,
-    height: 60,
-    marginVertical: 20,
+    marginHorizontal: 16,
   },
 });
+
+export default App;
