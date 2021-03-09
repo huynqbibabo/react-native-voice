@@ -137,5 +137,5 @@ export {
   useSpeechEvent,
   useSpeechRecognizer,
 };
-const Speecher = new RCTVoice();
-export default Speecher;
+const VoiceRecognizer = new RCTVoice();
+export default VoiceRecognizer;

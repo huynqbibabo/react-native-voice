@@ -4,7 +4,7 @@ import type {
   SpeechRecognizedEvent,
   StateChangeEvent,
 } from './index';
-import Speecher, { ErrorEvent, Options, SpeechEvent } from './index';
+import VoiceRecognizer, { ErrorEvent, Options, SpeechEvent } from './index';
 import type { EmitterSubscription } from 'react-native';
 
 let recognizeChannel = 1;
@@ -16,13 +16,13 @@ const useModuleState = () => {
 
   useEffect(() => {
     async function updateState() {
-      const moduleState = await Speecher.getState();
+      const moduleState = await VoiceRecognizer.getState();
       setState(moduleState);
     }
 
     updateState();
 
-    const sub = Speecher.onModuleStateChange((event) => {
+    const sub = VoiceRecognizer.onModuleStateChange((event) => {
       setState(event.state);
     });
     let handlerSubscription: EmitterSubscription;
@@ -50,7 +50,7 @@ const useSpeechEvent = (event: SpeechEvent, handler: (event: any) => void) => {
   }, [handler]);
 
   useEffect(() => {
-    const sub = Speecher.addListener(event, (payload) =>
+    const sub = VoiceRecognizer.addListener(event, (payload) =>
       // @ts-ignore
       savedHandler.current(payload)
     );
@@ -68,7 +68,7 @@ const useModuleStateChanges = (handler: (event: SpeechModuleState) => void) => {
   useEffect(() => {
     let didCancel = false;
     const updateState = async () => {
-      const moduleState = await Speecher.getState();
+      const moduleState = await VoiceRecognizer.getState();
       if (!didCancel) {
         handler(moduleState);
       }
@@ -88,7 +88,7 @@ const useSpeechRecognizer = (textToScore?: string, options?: Options) => {
 
   useEffect(() => {
     let didCancel = false;
-    const channelStateSubscription = Speecher.addListener(
+    const channelStateSubscription = VoiceRecognizer.addListener(
       'onModuleStateChange',
       ({ state: moduleState, channel }: StateChangeEvent) => {
         if (channel === _channel.current && !didCancel) {
@@ -98,7 +98,7 @@ const useSpeechRecognizer = (textToScore?: string, options?: Options) => {
       }
     );
 
-    const recognizeChannelSubscription = Speecher.addListener(
+    const recognizeChannelSubscription = VoiceRecognizer.addListener(
       'onSpeechRecognized',
       ({
         filePath,
@@ -113,7 +113,7 @@ const useSpeechRecognizer = (textToScore?: string, options?: Options) => {
       }
     );
 
-    const recognizeChannelErrorSubscription = Speecher.addListener(
+    const recognizeChannelErrorSubscription = VoiceRecognizer.addListener(
       'onError',
       ({ channel, error }: ErrorEvent) => {
         if (channel === _channel.current && !didCancel) {
@@ -132,15 +132,15 @@ const useSpeechRecognizer = (textToScore?: string, options?: Options) => {
   }, []);
 
   const start = async () => {
-    await Speecher.start(_channel.current, textToScore, options);
+    await VoiceRecognizer.start(_channel.current, textToScore, options);
   };
 
   const stop = async () => {
-    await Speecher.stop(_channel.current);
+    await VoiceRecognizer.stop(_channel.current);
   };
 
   const cancel = async () => {
-    await Speecher.cancel(_channel.current);
+    await VoiceRecognizer.cancel(_channel.current);
   };
 
   return {
