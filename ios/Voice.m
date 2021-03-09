@@ -1,6 +1,7 @@
 #import "Voice.h"
 #import "RCTConvert.h"
 
+
 NSString* GetDirectoryOfType_Sound(NSSearchPathDirectory dir) {
     NSArray* paths = NSSearchPathForDirectoriesInDomains(dir, NSUserDomainMask, YES);
     NSString *pathForAudioCacheFiles = [paths.firstObject stringByAppendingString:@"/AudioCacheFiles/"];
@@ -15,7 +16,6 @@ NSString* GetDirectoryOfType_Sound(NSSearchPathDirectory dir) {
 }
 
 @implementation Voice {
-    NSMutableDictionary *_players;
     NSNumber *_channel;
 }
 
@@ -37,52 +37,43 @@ RCT_EXPORT_MODULE()
     _recordState.bufferByteSize = 2048;
     _recordState.mSelf = self;
     _state = StateNone;
+    
+    _regex = [NSRegularExpression regularExpressionWithPattern:@"[\\^.?:!,@#\$%&*()_+\\-=\"\\/|\\\\><`~{}\\[\\];]" options:NSRegularExpressionCaseInsensitive error:nil];
     return self;
 }
 
 - (dispatch_queue_t)methodQueue
 {
-    return dispatch_queue_create("vn.bibabo.ReactNativeSpeechace", DISPATCH_QUEUE_SERIAL);
+    return dispatch_queue_create("RNVoice", DISPATCH_QUEUE_SERIAL);
 }
 
-RCT_EXPORT_METHOD(setApiKey:(NSString *)key) {
-    _apiKey = key;
-}
+//- (dispatch_queue_t)methodQueue {
+//    return dispatch_get_main_queue();
+//}
+
 
 RCT_EXPORT_METHOD(getState:(RCTPromiseResolveBlock)resolve rejecter:(__unused RCTPromiseRejectBlock)reject) {
     resolve(_state);
 }
 
-RCT_EXPORT_METHOD(start:(nonnull NSNumber *)channel params:(NSDictionary *)params formData:(NSDictionary *)formData configs:(NSDictionary *)configs resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    if (!_apiKey) {
-        reject(@"api_missing", @"Set a valid api key to start!", nil);
-        return;
-    }
+RCT_EXPORT_METHOD(start:(nonnull NSNumber *)channel textToScore:(NSString *)textToScore opts:(NSDictionary *)opts resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     
     if (![_state  isEqual: StateNone]) {
         [self stopRecording];
         [self releaseResouce];
-        [self cancelRequestTask];
+        [self teardown];
     }
-    
-    if(_key) {
-        [[self playerForKey:_key] stop];
-    }
-    
-    if (formData[@"audioFile"] != nil) {
-        _filePath = formData[@"audioFile"];
-    }
-    _channel = channel;
-    if (_filePath != nil) {
-        resolve(@{});
-        [self makeRequest];
+    if (!textToScore) {
+        reject(@"1", @"Can't score with empty string", nil);
         return;
     }
+    _channel = channel;
     @try {
-        _params = params;
-        _formData = formData;
-        _configs = configs;
-        
+        _configs = opts;
+        _textualString = textToScore;
+        textToScore = [textToScore stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        NSString *modifiedString = [_regex stringByReplacingMatchesInString:textToScore options:0 range:NSMakeRange(0, [textToScore length]) withTemplate:@""];
+        _contextualStrings = [modifiedString componentsSeparatedByString: @" "];
         _state = StateRecording;
         
         NSString *fileName = [NSString stringWithFormat:@"%@%@",[[NSProcessInfo processInfo] globallyUniqueString], @".wav"];
@@ -111,10 +102,6 @@ RCT_EXPORT_METHOD(start:(nonnull NSNumber *)channel params:(NSDictionary *)param
         resolve(@{});
         [self sendEventWithName:@"onModuleStateChange" body:[NSDictionary dictionaryWithObjectsAndKeys: _state,@"state", channel, @"channel", nil]];
         
-        if (configs[@"audioLengthInSeconds"] != nil) {
-            NSInteger timeIntervalInSeconds = [RCTConvert NSInteger:configs[@"audioLengthInSeconds"]];
-            [self startTimer:timeIntervalInSeconds];
-        }
     }
     @catch (NSException * e) {
         reject(@"-1", e.reason, nil);
@@ -129,7 +116,7 @@ RCT_EXPORT_METHOD(stop:(nonnull NSNumber *)channel resolve:(RCTPromiseResolveBlo
         
         resolve(@{});
         if (_filePath != nil) {
-            [self makeRequest];
+            [self transcribeFile];
         } else {
             _state = StateNone;
             [self sendEventWithName:@"onModuleStateChange" body:[NSDictionary dictionaryWithObjectsAndKeys: _state,@"state", channel, @"channel", nil]];
@@ -144,218 +131,40 @@ RCT_EXPORT_METHOD(stop:(nonnull NSNumber *)channel resolve:(RCTPromiseResolveBlo
 RCT_EXPORT_METHOD(cancel:(nonnull NSNumber *)channel resolve:(RCTPromiseResolveBlock)resolve rejecter:(__unused RCTPromiseRejectBlock)reject) {
     [self stopRecording];
     [self releaseResouce];
-    [self cancelRequestTask];
+    [self teardown];
     _state = StateNone;
     resolve(@{});
     [self sendEventWithName:@"onModuleStateChange" body:[NSDictionary dictionaryWithObjectsAndKeys: _state,@"state", channel, @"channel", nil]];
 }
 
-RCT_EXPORT_METHOD(clear:(RCTPromiseResolveBlock)resolve rejecter:(__unused RCTPromiseRejectBlock)reject) {
+RCT_EXPORT_METHOD(release:(RCTPromiseResolveBlock)resolve rejecter:(__unused RCTPromiseRejectBlock)reject) {
     @synchronized(self) {
         [self stopRecording];
         [self releaseResouce];
-        [self cancelRequestTask];
+        [self teardown];
         _state = StateNone;
         [[NSURLCache sharedURLCache] removeAllCachedResponses];
         NSError *error;
         [[NSFileManager defaultManager] removeItemAtPath:GetDirectoryOfType_Sound(NSCachesDirectory) error:&error];
         NSLog(@"%@", error);
-        for (id key in [_players allKeys]) {
-            AVAudioPlayer *player = [self playerForKey:key];
-            if (player) {
-                [player stop];
-                [[self players] removeObjectForKey:key];
-                NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
-                [notificationCenter removeObserver:self];
-            }
-        }
-        resolve(@"");
-    }
-}
-
-RCT_EXPORT_METHOD(setVolume:(double) volume withKey:(nonnull NSNumber *)key resolve:(RCTPromiseResolveBlock) resolve reject:(RCTPromiseRejectBlock) reject) {
-    [[self playerForKey:key] setVolume: volume];
-    resolve(@"");
-}
-
-RCT_EXPORT_METHOD(prepare:(NSString *)filePath withKey:(nonnull NSNumber *)key resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
-{
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        if ([self playerForKey:key]) {
-            [self releasePlayer:nil withKey:key];
-        }
-        NSError *error;
-        NSString * audioFile = filePath != nil ? filePath : self->_filePath;
-        // [filePath != nil ? filePath : _filePath stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLHostAllowedCharacterSet]];
         
-        NSLog(@"prepare for path: %@", audioFile);
-        if (!audioFile) {
-            reject(@"file error", @"There no audio file for playback", nil);
-            return;
-        }
-        AVAudioPlayer *audioPlayer;
-        NSURL *audioFileURL;
-        if ([audioFile hasPrefix:@"http"]) {
-            audioFileURL = [[NSURLComponents alloc] initWithString:audioFile].URL;
-            NSData *data = [NSData dataWithContentsOfURL:audioFileURL];
-            audioPlayer = [[AVAudioPlayer alloc] initWithData:data error:&error];
-        } else if ([audioFile hasPrefix:@"ipod-library://"] || [audioFile hasPrefix:@"file://"]) {
-            audioFileURL = [NSURL URLWithString:audioFile];
-            audioPlayer = [[AVAudioPlayer alloc] initWithContentsOfURL:audioFileURL error:&error];
-        } else {
-            audioFileURL = [NSURL fileURLWithPath:audioFile];
-            audioPlayer = [[AVAudioPlayer alloc] initWithContentsOfURL:audioFileURL error:&error];
-        }
-        RCTLogInfo(@"audio player alloc");
-        
-        if (audioPlayer) {
-            @synchronized(self) {
-                audioPlayer.delegate = self;
-                audioPlayer.enableRate = YES;
-                [audioPlayer prepareToPlay];
-                [[self players] setObject:audioPlayer forKey:key];
-                resolve(@"");
-            }
-        } else {
-            reject(@"player error", [NSString stringWithFormat:@"Can't prepare player for path %@", audioFile], error);
-        }
-    });
-}
-
-
-RCT_EXPORT_METHOD(play:(nonnull NSNumber *)key resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
-    NSLog(@"%@", key);
-    AVAudioPlayer *player = [self playerForKey:key];
-    if (player) {
-        AVAudioSession *session = [AVAudioSession sharedInstance];
-        [session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
-        [session setActive:TRUE error:nil];
-        
-        [[NSNotificationCenter defaultCenter]
-         addObserver:self
-         selector:@selector(audioSessionChangeObserver:)
-         name:AVAudioSessionRouteChangeNotification
-         object:nil];
-        _key = key;
-        [player play];
         resolve(@"");
-        [self sendEventWithName:@"onPlayerStateChange" body:[NSDictionary dictionaryWithObjectsAndKeys: key,@"key", [NSNumber numberWithBool:[player isPlaying]], @"isPlaying", nil]];
-    } else {
-        reject(@"player error", @"AudioPlayer not started yet", nil);
     }
 }
 
-
-RCT_EXPORT_METHOD(pause:(nonnull NSNumber *)key resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
-    RCTLogInfo(@"pause");
-    AVAudioPlayer *audioPlayer = [self playerForKey:key];
-    if (audioPlayer && [audioPlayer isPlaying]) {
-        [audioPlayer pause];
-        resolve(@"");
-        [self sendEventWithName:@"onPlayerStateChange" body:[NSDictionary dictionaryWithObjectsAndKeys:key,@"key", [NSNumber numberWithBool:[audioPlayer isPlaying]], @"isPlaying", nil]];
-    } else {
-        reject(@"player error", @"AudioPlayer not started yet", nil);
-    }
-}
-
-RCT_EXPORT_METHOD(seek:(nonnull NSNumber*)time withKey:(nonnull NSNumber *)key resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
-    AVAudioPlayer *audioPlayer = [self playerForKey:key];
-    if (audioPlayer) {
-        audioPlayer.currentTime = [time doubleValue];
-        resolve(@"");
-    } else {
-        reject(@"player error", @"AudioPlayer not started yet", nil);
-    }
-}
-
-RCT_EXPORT_METHOD(stopPlayer:(nonnull NSNumber *)key resolver:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
-    AVAudioPlayer *audioPlayer = [self playerForKey:key];
-    if (audioPlayer) {
-        [audioPlayer stop];
-        resolve(@"");
-        NSDictionary *payload = [NSDictionary dictionaryWithObjectsAndKeys: key,@"key", [NSNumber numberWithBool:[audioPlayer isPlaying]], @"isPlaying", nil];
-        [self sendEventWithName:@"onPlayerStateChange" body:payload];
-    } else {
-        reject(@"player error", @"AudioPlayer not started yet", nil);
-    }
-}
-
-RCT_EXPORT_METHOD(release : (nonnull NSNumber *)key) {
-    @synchronized(self) {
-        AVAudioPlayer *player = [self playerForKey:key];
-        if (player) {
-            [player stop];
-            [[self players] removeObjectForKey:key];
-            NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
-            [notificationCenter removeObserver:self];
-            NSLog(@"released player for key %@", key);
+RCT_EXPORT_METHOD(isSpeechAvailable:(RCTPromiseResolveBlock)resolve rejecter:(__unused RCTPromiseRejectBlock)reject) {
+    [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
+        switch (status) {
+            case SFSpeechRecognizerAuthorizationStatusAuthorized:
+                resolve(@true);
+                break;
+            default:
+                resolve(@false);
         }
-    }
+    }];
 }
 
-- (void)audioSessionChangeObserver:(NSNotification *)notification {
-    NSDictionary *userInfo = notification.userInfo;
-    AVAudioSessionRouteChangeReason audioSessionRouteChangeReason =
-    [userInfo[@"AVAudioSessionRouteChangeReasonKey"] longValue];
-    AVAudioSessionInterruptionType audioSessionInterruptionType =
-    [userInfo[@"AVAudioSessionInterruptionTypeKey"] longValue];
-    AVAudioPlayer *player = [self playerForKey:self.key];
-    if (audioSessionInterruptionType == AVAudioSessionInterruptionTypeEnded) {
-        if (player && player.isPlaying) {
-            [player play];
-        }
-    }
-    if (audioSessionRouteChangeReason ==
-        AVAudioSessionRouteChangeReasonOldDeviceUnavailable) {
-        if (player) {
-            [player pause];
-        }
-    }
-    if (audioSessionInterruptionType == AVAudioSessionInterruptionTypeBegan) {
-        if (player) {
-            [player pause];
-        }
-    }
-}
-
-- (void)audioPlayerDidFinishPlaying:(AVAudioPlayer *)player successfully:(BOOL)flag {
-    NSLog(@"audioPlayerDidFinishPlaying");
-    NSNumber *key = [self keyForPlayer:player];
-    // Send last event then finish it.
-    NSDictionary *payload = [NSDictionary dictionaryWithObjectsAndKeys:key,@"key",  [NSNumber numberWithBool:[player isPlaying]], @"isPlaying", nil];
-    [self sendEventWithName:@"onPlayerStateChange" body:payload];
-}
-
--(void) releasePlayer:(AVAudioPlayer *)player withKey:(NSNumber *)key {
-    if(player) {
-        [player stop];
-        [[self players] removeObjectForKey:[self keyForPlayer:player]];
-    } else if (key) {
-        AVAudioPlayer *audioPlayer = [self playerForKey:key];
-        [audioPlayer stop];
-        [[self players] removeObjectForKey:key];
-    }
-    NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
-    [notificationCenter removeObserver:self];
-    _key = nil;
-}
-
-- (NSMutableDictionary *)players {
-    if (!_players) {
-        _players = [NSMutableDictionary new];
-    }
-    return _players;
-}
-
-- (AVAudioPlayer *)playerForKey:(nonnull NSNumber *)key {
-    return [[self players] objectForKey:key];
-}
-
-- (NSNumber *)keyForPlayer:(nonnull AVAudioPlayer *)player {
-    return [[[self players] allKeysForObject:player] firstObject];
-}
-
-- (void) makeRequest {
+- (void) transcribeFile {
     if ([_filePath isEqual: nil]) {
         [self handleModuleExeption:[NSException exceptionWithName:@"file error" reason:@"There no audio file to score!" userInfo:nil]];
         return;
@@ -365,83 +174,114 @@ RCT_EXPORT_METHOD(release : (nonnull NSNumber *)key) {
     NSDictionary *payload = [NSDictionary dictionaryWithObjectsAndKeys: _state,@"state", _channel, @"channel", nil];
     [self sendEventWithName:@"onModuleStateChange" body:payload];
     @try {
-        NSURLComponents *urlBuilder = [[NSURLComponents alloc] init];
-        urlBuilder.scheme = @"https";
-        urlBuilder.host = @"api2.speechace.com";
-        
-        NSString *apiPaths = [NSString stringWithFormat:@"/api/%@/%@/%@/json", [_configs valueForKey:@"callForAction"], [_configs valueForKey:@"actionForDatatype"], [[_params valueForKey:@"dialect"] isEqual: @"en-gb"] ? @"v0.1" : @"v0.5"];
-        urlBuilder.path = apiPaths;
-        
-        NSArray<NSURLQueryItem *> *queryItems = @[[NSURLQueryItem queryItemWithName:@"key" value:_apiKey]];
-        // add url get params
-        if (_params.count > 0) {
-            for(id key in _params) {
-                id value = [_params objectForKey:key];
-                queryItems = [queryItems arrayByAddingObject:[NSURLQueryItem queryItemWithName:key value:value]];
-            }
+        _sessionId = [[NSUUID UUID] UUIDString];
+        NSLocale* locale = nil;
+        if ([_configs[@"locale"] length] > 0) {
+            locale = [NSLocale localeWithLocaleIdentifier:_configs[@"locale"]];
         }
-        urlBuilder.queryItems = queryItems;
-        NSURL *url = urlBuilder.URL;
-        NSLog(@"%@", url);
-        
-        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestUseProtocolCachePolicy timeoutInterval:10.0];
-        
-        [request setCachePolicy:NSURLRequestReloadIgnoringLocalCacheData];
-        [request setHTTPShouldHandleCookies:NO];
-        [request setTimeoutInterval:60];
-        [request setHTTPMethod:@"POST"];
-        
-        NSString *boundary = @"react-native-speechace";
-        
-        // set Content-Type in HTTP header
-        NSString *contentType = [NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary];
-        [request setValue:contentType forHTTPHeaderField: @"Content-Type"];
-        
-        // post body
-        NSMutableData *body = [NSMutableData data];
-        
-        // add form data (all params are strings)
-        if (_formData.count > 0) {
-            for(id key in _formData) {
-                if (![key  isEqual: @"user_audio_file"]) {
-                    id value = [_formData objectForKey:key];
-                    [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-                    [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=%@\r\n\r\n", key] dataUsingEncoding:NSUTF8StringEncoding]];
-                    [body appendData:[[NSString stringWithFormat:@"%@\r\n", value] dataUsingEncoding:NSUTF8StringEncoding]];
-                }
-            }
+        if (locale) {
+            _speechRecognizer = [[SFSpeechRecognizer alloc] initWithLocale:locale];
+        } else {
+            _speechRecognizer = [[SFSpeechRecognizer alloc] init];
         }
         
-        [body appendData:[[NSString stringWithFormat:@"\r\n--%@\r\n",boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-        [body appendData:[[NSString stringWithString:[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"user_audio_file\"; filename=%@\r\n", [_filePath stringByDeletingPathExtension]]] dataUsingEncoding:NSUTF8StringEncoding]];
-        [body appendData:[@"Content-Type: application/octet-stream\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
-        NSData *fileData = [[NSData alloc] initWithContentsOfURL:[NSURL fileURLWithPath:_filePath]];
-        [body appendData:[NSData dataWithData:fileData]];
-        [body appendData:[[NSString stringWithFormat:@"\r\n--%@--\r\n",boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+        _speechRecognizer.delegate = self;
         
-        [request setHTTPBody:body];
-        _requestTask = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-            if (error) {
-                NSLog(@"%@", error);
-                [self handleModuleExeption:[NSException exceptionWithName:@"request_error" reason:[error localizedDescription] userInfo:nil]];
+        NSURL *audioFileURL = [NSURL fileURLWithPath:_filePath];
+        
+        _recognitionRequest = [[SFSpeechURLRecognitionRequest alloc] initWithURL:audioFileURL];
+        _recognitionRequest.shouldReportPartialResults = YES;
+        //        _recognitionRequest.contextualStrings = _contextualStrings;
+        //        _recognitionRequest.taskHint = SFSpeechRecognitionTaskHintDictation;
+        
+        _recognitionTask = [self.speechRecognizer recognitionTaskWithRequest:self.recognitionRequest resultHandler:^(SFSpeechRecognitionResult * _Nullable result, NSError * _Nullable error) {
+            
+            if (error != nil) {
+                NSString *errorMessage = [NSString stringWithFormat:@"%ld/%@", error.code, [error localizedDescription]];
+                [self handleModuleExeption:[NSException exceptionWithName:@"RecognitionTask Exception" reason:errorMessage userInfo:@{}]];
+                [self teardown];
                 return;
-            } else {
-                NSError * jsonError;
-                NSDictionary *dictionary = [NSJSONSerialization  JSONObjectWithData:data options:kNilOptions error:&jsonError];
-                NSDictionary *response = @{@"response": [self dictionaryWithCamelCaseKeys: dictionary], @"filePath": self->_filePath, @"channel": self->_channel};
-                [self sendEventWithName:@"onSpeechRecognized" body:response];
             }
             
-            self->_state = StateNone;
-            NSDictionary *payload = [NSDictionary dictionaryWithObjectsAndKeys: self->_state,@"state", self->_channel, @"channel", nil];
-            [self sendEventWithName:@"onModuleStateChange" body:payload];
-            self->_filePath = nil;
-            self->_channel = nil;
+            BOOL isFinal = result.isFinal;
+            
+            //            [self sendResult :nil :result.bestTranscription.formattedString :transcriptionDics :[NSNumber numberWithBool:isFinal]];
+            // || self.recognitionTask.isCancelled || self.recognitionTask.isFinishing
+            if (isFinal) {
+                NSMutableArray* transcripts = [NSMutableArray new];
+                NSMutableArray* transcriptionDics = [NSMutableArray new];
+                for (SFTranscription* transcription in result.transcriptions) {
+                    [transcripts addObject:transcription.formattedString];
+                    [transcriptionDics addObject:[self toArrayWithDuplicateWordsCount:transcription.formattedString]];
+                }
+                NSArray *contextualDicts = [self toArrayWithDuplicateWordsCount:self->_textualString];
+                
+                NSMutableArray *wordScoreList = [NSMutableArray new];
+                NSInteger summaryQualityScore = 0;
+                //                NSMutableString *transcript = [NSMutableString new];
+                for (NSDictionary *word in contextualDicts) {
+                    NSMutableArray<NSDictionary *> *wordScoreDic = [NSMutableArray new];
+                    for (NSArray *transcriptionDic in transcriptionDics) {
+                        [wordScoreDic addObject:[self getMostSimilarWordByLevenshteinDistance:word transcriptionDic:transcriptionDic]];
+                    }
+                    NSDictionary *wordScore = [self getWordByHighestScoreL:word wordScoreDic:wordScoreDic];
+                    
+                    summaryQualityScore = summaryQualityScore + [wordScore[@"percentageOfTextMatch"] intValue];
+                    //                    [transcript appendString:[NSString stringWithFormat:@"%@ ", wordScore[@"transcript"]]];
+                    //                    [wordScoreList addObject:@{@"word": wordScore[@"word"], @"qualityScore": wordScore[@"percentageOfTextMatch"], @"levenshteinScore": wordScore[@"levenshteinDistance"]}];
+                    [wordScoreList addObject:[NSDictionary dictionaryWithObjectsAndKeys:word[@"letters"], @"word", wordScore[@"percentageOfTextMatch"], @"qualityScore", wordScore[@"levenshteinDistance"], @"levenshteinScore", nil]];
+                    
+                }
+                
+                long qualityScore = (summaryQualityScore / [wordScoreList count]);
+                NSMutableDictionary *response = [[NSMutableDictionary alloc] init];
+                [response setValue:self->_textualString forKey:@"text"];
+                [response setValue:@"CORRECT" forKey:@"fidelityClass"];
+                [response setValue:[NSNumber numberWithLong:qualityScore] forKey:@"qualityScore"];
+                [response setValue:transcripts forKey:@"transcripts"];
+                [response setObject:wordScoreList forKey:@"wordScoreList"];
+                
+                NSMutableDictionary *resultDict = [[NSMutableDictionary alloc] init];
+                [resultDict setValue:self->_filePath forKey:@"filePath"];
+                [resultDict setValue:self->_channel forKey:@"channel"];
+                [resultDict setObject:response forKey:@"response"];
+                
+                [self teardown];
+                [self sendEventWithName:@"onSpeechRecognized" body:resultDict];
+                [self emitModuleStateChangeEvent:StateNone];
+                
+                return;
+            }
         }];
-        [_requestTask resume];
     } @catch (NSException * e) {
         [self handleModuleExeption:e];
     }
+}
+
+- (void) teardown {
+    self.isTearingDown = YES;
+    [self.recognitionTask cancel];
+    self.recognitionTask = nil;
+    
+    // Set back audio session category
+    
+    // End recognition request
+    //    [self.recognitionRequest endAudio];
+    
+    // Remove tap on bus
+    [self.audioEngine.inputNode removeTapOnBus:0];
+    [self.audioEngine.inputNode reset];
+    
+    // Stop audio engine and dereference it for re-allocation
+    if (self.audioEngine.isRunning) {
+        [self.audioEngine stop];
+        [self.audioEngine reset];
+        self.audioEngine = nil;
+    }
+    
+    self.recognitionRequest = nil;
+    self.sessionId = nil;
+    self.isTearingDown = NO;
 }
 
 void HandleInputBuffer(void *inUserData,
@@ -467,6 +307,13 @@ void HandleInputBuffer(void *inUserData,
     [pRecordState->mSelf sendEventWithName:@"onVoice" body:[NSDictionary dictionaryWithObjectsAndKeys:[NSNumber numberWithShort:*samples],@"size", [NSNumber numberWithLong:(long) nsamples], @"length", nil]];
     
     AudioQueueEnqueueBuffer(pRecordState->mQueue, inBuffer, 0, NULL);
+}
+
+- (void) emitModuleStateChangeEvent:(NSString * _Nullable) withState{
+    if (withState) {
+        _state = withState;
+    }
+    [self sendEventWithName:@"onModuleStateChange" body:[NSDictionary dictionaryWithObjectsAndKeys:self->_state,@"state", self->_channel, @"channel", nil]];
 }
 
 - (void) startTimer:(NSInteger)timeIntervalInSeconds {
@@ -498,20 +345,11 @@ void HandleInputBuffer(void *inUserData,
     }
 }
 
-- (void) cancelRequestTask {
-    if (_requestTask != nil){
-        if (_requestTask.state == NSURLSessionTaskStateRunning || _requestTask.state != NSURLSessionTaskStateSuspended) {
-            [_requestTask cancel];
-            _requestTask = nil;
-        }
-    }
-}
-
 - (void) handleModuleExeption:(NSException *)e {
     NSLog(@"Exception: %@", e);
     [self stopRecording];
     [self releaseResouce];
-    [self cancelRequestTask];
+    [self teardown];
     _state = StateNone;
     [self sendEventWithName:@"onError" body:[NSDictionary dictionaryWithObjectsAndKeys:e.reason,@"error", self->_channel, @"channel", nil]];
     [self sendEventWithName:@"onModuleStateChange" body:[NSDictionary dictionaryWithObjectsAndKeys:self->_state,@"state", self->_channel, @"channel", nil]];
@@ -531,71 +369,70 @@ void HandleInputBuffer(void *inUserData,
     ];
 }
 
-/*
- Recursive algorithm to find all nested dictionary keys and create an NSMutableDictionary copy with all keys converted to lowercase
- Returns an NSMutableDictionary with all keys and nested keys converted to lowercase.
- */
-- (NSMutableDictionary *)dictionaryWithCamelCaseKeys:(NSDictionary *)dictionary
+- (NSDictionary *) getMostSimilarWordByLevenshteinDistance:(NSDictionary *)word transcriptionDic:(NSArray<NSDictionary *> *)transcriptionDic
 {
-    NSMutableDictionary *resultDict = [NSMutableDictionary dictionaryWithCapacity:[dictionary count]];
-    [dictionary enumerateKeysAndObjectsUsingBlock:^(NSString *key, id obj, BOOL *stop) {
-        // There are 3 types of objects to consider, NSDictionary, NSArray and everything else
-        id resultObj;
-        if ([obj isKindOfClass:NSDictionary.class])
-        {
-            // Recursively dig deeper into this nested dictionary
-            resultObj = [self dictionaryWithCamelCaseKeys:obj];
-        }
-        else if ([obj isKindOfClass:NSArray.class])
-        {
-            /*
-             Iterate over this nested NSArray. Recursively convert any NSDictionary objects to the lowercase version.
-             If the array contains another array then continue to recursively dig deeper.
-             */
-            resultObj = [NSMutableArray arrayWithCapacity:[obj count]];
-            for (id arrayObj in obj)
-            {
-                if ([arrayObj isKindOfClass:NSDictionary.class])
-                    [resultObj addObject:[self dictionaryWithCamelCaseKeys:arrayObj]];
-                else if ([arrayObj isKindOfClass:NSArray.class])
-                    [resultObj addObject:[self arrayWithCamelcaseKeysForDictionaryArray:arrayObj]];
-                else
-                    [resultObj addObject:arrayObj];
-            }
-        }
-        else
-        {
-            // The object is not an NSDictionary or NSArray so keep the object as is
-            resultObj = obj;
-        }
-        
-        // The result object has been converted and can be added to the dictionary. Note this object may be nested inside a larger dictionary.
-        [resultDict setObject:resultObj forKey:[self toCamelCase:key]];
-    }];
-    return resultDict;
-}
-
-/*
- Convert NSDictionary keys to lower case when embedded in an NSArray
- */
-- (NSMutableArray *)arrayWithCamelcaseKeysForDictionaryArray:(NSArray *)dictionaryArray
-{
-    NSMutableArray *resultArray = [NSMutableArray arrayWithCapacity:[dictionaryArray count]];
-    for (id eachObj in dictionaryArray)
-    {
-        if ([eachObj isKindOfClass:NSDictionary.class])
-            [resultArray addObject:[self dictionaryWithCamelCaseKeys:eachObj]];
-        else if ([eachObj isKindOfClass:NSArray.class])
-            [resultArray addObject:[self arrayWithCamelcaseKeysForDictionaryArray:eachObj]];
+    NSMutableArray* wordDics = [NSMutableArray new];
+    for (NSDictionary *transcription in transcriptionDic) {
+        [wordDics addObject:[self scoreByLevenshteinDistance:word right:transcription]];
     }
-    return resultArray;
+    
+    return [self getWordByHighestScoreL:word wordScoreDic:wordDics];
 }
 
-
-- (NSString *)toCamelCase:(NSString *)string
+- (NSDictionary *) getWordByHighestScoreL:(NSDictionary *)sentence wordScoreDic:(NSArray<NSDictionary *> *)wordScoreDic
 {
-    NSString* letterCases =  [[[string capitalizedString] componentsSeparatedByCharactersInSet:[[NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"] invertedSet]] componentsJoinedByString:@""];
-    return [NSString stringWithFormat:@"%@%@",[[letterCases substringToIndex:1] lowercaseString],[letterCases substringFromIndex:1]];
+    // var word: String, var transcript: String, var levenshteinDistance: Int, var percentageOfTextMatch: Int
+    NSDictionary *wordScore = @{
+        @"word" : sentence[@"word"],
+        @"transcript": @"",
+        @"levenshteinDistance": [NSNumber numberWithLong:[sentence[@"word"] length]],
+        @"percentageOfTextMatch": @0
+    };
+    for (NSDictionary *word in wordScoreDic) {
+        if (
+            [word[@"levenshteinDistance"] doubleValue] <= [wordScore[@"levenshteinDistance"] doubleValue] &&
+            [word[@"percentageOfTextMatch"] doubleValue] >= [wordScore[@"percentageOfTextMatch"] doubleValue] &&
+            [word[@"word"] length] > [word[@"levenshteinDistance"] intValue]
+            ) {
+            wordScore = word;
+        }
+    }
+    return wordScore;
+}
+
+- (NSDictionary *) scoreByLevenshteinDistance:(NSDictionary *)left right:(NSDictionary *)right
+{
+    NSUInteger levenshteinDistance = [[left valueForKey:@"word"] mdc_damerauLevenshteinDistanceTo:[right valueForKey:@"word"]];
+    
+    return @{
+        @"word": [left valueForKey:@"letters"],
+        @"transcript": [right valueForKey:@"word"],
+        @"levenshteinDistance": [NSNumber numberWithLong:levenshteinDistance],
+        @"percentageOfTextMatch": [self percentageOfTextMatch:[left valueForKey:@"word"] right:[right valueForKey:@"word"]]
+    };
+}
+
+- (NSArray<NSDictionary *> *) toArrayWithDuplicateWordsCount:(NSString *)text {
+    
+    NSString *modifiedString = [_regex stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, [text length]) withTemplate:@""];
+    NSMutableArray* transcriptionDics = [NSMutableArray new];
+    NSArray *words = [modifiedString componentsSeparatedByString: @" "];
+    
+    for( int i = 0; i < [words count]; i++)
+    {
+        NSString *word = [words[i] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        [transcriptionDics addObject:@{@"word": [word lowercaseString], @"letters": words[i] }];
+    }
+    return transcriptionDics;
+}
+
+- (NSNumber *) percentageOfTextMatch:(NSString*)left right:(NSString*)right {
+    NSString *s0 = [left stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    NSString *s1 = [right stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    
+    NSInteger distance = [s0 mdc_damerauLevenshteinDistanceTo:s1];
+    NSInteger percent = (100 - (int)distance * 100 / ([s0 length] + [s1 length]));
+    return [NSNumber numberWithLong:percent];
 }
 
 - (void)dealloc {

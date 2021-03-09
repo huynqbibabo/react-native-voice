@@ -1,5 +1,5 @@
 import Speecher from 'react-native-voice';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Button,
   FlatList,
@@ -60,13 +60,18 @@ const App = () => {
     },
   ]);
 
+  const getservices = useCallback(async () => {
+    const services = await Speecher.getSpeechRecognitionServices();
+    console.log(services);
+  }, []);
   // const [state, setState] = useState<any[]>([]);
   useEffect(() => {
-    console.log('speech recognition');
+    Speecher.isAvailable().then((result) => console.log(result));
+    getservices();
     return () => {
       Speecher.release();
     };
-  }, []);
+  }, [getservices]);
 
   const clear = async () => {
     // await Speecher.clear();

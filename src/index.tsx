@@ -78,7 +78,7 @@ class RCTVoice {
       return;
     }
 
-    return await VoiceModule.getgetSpeechRecognitionServices();
+    return await VoiceModule.getSpeechRecognitionServices();
   }
 
   onVoiceStart = (fn: (e: VoiceStartEvent) => void): EmitterSubscription => {
@@ -99,6 +99,12 @@ class RCTVoice {
 
   onModuleStateChange(fn: (e: StateChangeEvent) => void): EmitterSubscription {
     return VoiceModuleEmitter.addListener('onModuleStateChange', fn);
+  }
+
+  onSpeechRecognized(
+    fn: (e: SpeechRecognizedEvent) => void
+  ): EmitterSubscription {
+    return VoiceModuleEmitter.addListener('onSpeechRecognized', fn);
   }
 
   addListener(

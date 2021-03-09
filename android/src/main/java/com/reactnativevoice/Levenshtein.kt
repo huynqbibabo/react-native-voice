@@ -1,19 +1,19 @@
 package com.reactnativevoice
 
 import android.util.Log
+import com.facebook.react.bridge.ReadableArray
 import java.util.*
-import kotlin.collections.ArrayList
 import kotlin.collections.HashMap
 
-internal class Levenshtein(private val sentenceToScore: String, private val recognitionResults: ArrayList<String>) {
+internal class Levenshtein(sentenceToScore: String, transcripts: ReadableArray) {
   private var sentencesToScore: Text
   private var results = mutableListOf<Text>()
 
   init {
     sentencesToScore = toArrayWithDuplicateWordsCount(sentenceToScore)
-    for (partialTextResult in recognitionResults) {
-      val partialResult = toArrayWithDuplicateWordsCount(partialTextResult)
-      results.add(partialResult)
+    for (transcript in transcripts.toArrayList()) {
+      val wordList = toArrayWithDuplicateWordsCount(transcript as String)
+      results.add(wordList)
     }
   }
 
@@ -23,18 +23,11 @@ internal class Levenshtein(private val sentenceToScore: String, private val reco
       val wordsScore = mutableListOf<WordScore>()
       for (j in results.indices) {
         val word = getMostSimilarWordByLevenshteinDistance(sentencesToScore.text[i], results[j].text)
-//        val paragraph = paragraphs[i]
-//        if (word != null) {
-//          paragraph.removeAt(word.positionInWordList)
-//        }
-//        paragraphs[i] = paragraph
         wordsScore.add(word)
       }
       val highestScore = getWordByHighestScore(sentencesToScore.text[i], wordsScore)
       sentenceScoreList.add(LevenshteinWord(highestScore, i))
     }
-    Log.i(TAG, "scoreByLevenshteinDistance: $sentenceScoreList")
-
     return sentenceScoreList
   }
 
@@ -48,32 +41,20 @@ internal class Levenshtein(private val sentenceToScore: String, private val reco
   }
 
   private fun getWordByHighestScore(sentence: Word, words: MutableList<WordScore>): WordScore {
-    var wordHighestScore: WordScore? = null
+    var wordScore = WordScore(sentence.letters, "", sentence.word.length, 0)
     for (word in words) {
-      if (wordHighestScore != null) {
-//          if (
-//            wordHighestScore.percentageOfTextMatch < word.percentageOfTextMatch
-//          ) {
-//            wordHighestScore = word
-//          } else
-        if (
-          word.percentageOfTextMatch >= wordHighestScore.percentageOfTextMatch
-//            wordHighestScore.levenshteinDistance > word.levenshteinDistance
-        ) {
-          wordHighestScore = word
-        }
-      } else if (word.levenshteinDistance != word.word.length) {
-        wordHighestScore = word
+      if (
+        word.levenshteinDistance <= wordScore.levenshteinDistance &&
+        word.percentageOfTextMatch >= wordScore.percentageOfTextMatch &&
+        word.word.length > word.levenshteinDistance
+      ) {
+        wordScore = word
       }
     }
-//    if (wordByHighestScore.wordScore.levenshteinDistance )
-    if (wordHighestScore == null || (wordHighestScore.levenshteinDistance * 100) / sentence.word.length >= 75) {
-      wordHighestScore = WordScore(sentence.word, "", sentence.word.length, 0)
-    }
-    return wordHighestScore
+    return wordScore
   }
 
-  /**
+  /**`
    * compare two word by levenshtein distance and percentage of text march
    */
   private fun scoreByLevenshteinDistance(sentence: Word, word: Word): WordScore {

@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioFormat
 import android.media.AudioRecord
 import android.os.Bundle
 import android.os.Handler
@@ -17,20 +16,20 @@ import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter
 import java.io.File
-import java.io.FileOutputStream
 import java.util.*
-import kotlin.collections.ArrayList
+
 
 class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
   private var speech: SpeechRecognizer? = null
   private var locale: String? = null
   private var mTempFiles: MutableMap<String, String> = HashMap()
-  private var waveConfig: WaveConfig = WaveConfig()
+//  private var waveConfig: WaveConfig = WaveConfig()
 
-  private var workingFile: File? = null
-  private var outputStream: FileOutputStream? = null
-  private var speechResult: ArrayList<String>? = null
+  //  private var workingFile: File? = null
+//  private var outputStream: FileOutputStream? = null
+  private var transcripts: WritableArray? = null
+//  private var mAudioRecord: AudioRecord? = null
 
   private val moduleStates = object {
     var none: String = "NONE"
@@ -81,6 +80,7 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
       SpeechRecognizer.createSpeechRecognizer(reactApplicationContext)
     }
     speech?.setRecognitionListener(mRecognitionListener)
+
     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
 
     // Load the intent with options from JS
@@ -129,12 +129,12 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         _channel = channel
         state = moduleStates.recording
         sentence = textToScore
-
-        workingFile?.delete()
-        workingFile = null
-        workingFile = buildFile()
-        outputStream = workingFile?.outputStream()
-
+        transcripts = WritableNativeArray()
+//        workingFile?.delete()
+//        workingFile = null
+//        workingFile = buildFile()
+//        outputStream = workingFile?.outputStream()
+//        createAudioRecord()
         promise.resolve(true)
         emitStateChangeEvent()
       } catch (e: Exception) {
@@ -150,19 +150,21 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     val mainHandler = Handler(reactApplicationContext!!.mainLooper)
     mainHandler.post {
       try {
-        speech?.stopListening()
-        outputStream?.close()
-
+//        speech?.stopListening()
+//        outputStream?.close()
+//        mAudioRecord?.stop()
+//        mAudioRecord?.release()
+//        mAudioRecord = null
         promise.resolve(true)
 
-        if (speechResult != null) {
-          state = moduleStates.recognizing
-          emitStateChangeEvent()
-          recognize()
-        } else {
-          state = moduleStates.none
-          emitStateChangeEvent()
-        }
+//        if (transcripts != null) {
+        state = moduleStates.recognizing
+        emitStateChangeEvent()
+//        recognize()
+//        } else {
+//          state = moduleStates.none
+//          emitStateChangeEvent()
+//        }
       } catch (e: Exception) {
         promise.reject("-1", e.message)
         handleErrorEvent(e)
@@ -173,12 +175,15 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
   @ReactMethod
   fun cancel(channel: Double, promise: Promise) {
     _channel = channel
-    speechResult = null
+    transcripts = null
     val mainHandler = Handler(reactApplicationContext!!.mainLooper)
     mainHandler.post {
       try {
         speech?.cancel()
-        outputStream?.close()
+//        outputStream?.close()
+//        mAudioRecord?.stop()
+//        mAudioRecord?.release()
+//        mAudioRecord = null
         releaseResources()
         state = moduleStates.none
         promise.resolve(true)
@@ -193,15 +198,13 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
   @ReactMethod
   fun release(promise: Promise) {
     val mainHandler = Handler(reactApplicationContext!!.mainLooper)
-    speechResult = null
+    transcripts = null
     mainHandler.post {
-      if (speech != null) {
-        speech!!.destroy()
-      }
+      speech?.destroy()
       speech = null
-      speechResult = null
-      workingFile = null
-      outputStream = null
+      transcripts = null
+//      workingFile = null
+//      outputStream = null
       val path = reactApplicationContext.externalCacheDir?.absolutePath + "/AudioCacheFiles/"
       val pathAsFile = File(path)
 
@@ -244,41 +247,36 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
   }
 
   private fun recognize() {
+//    workingFile?.let { WaveHeaderWriter(it, waveConfig).writeHeader() }
 
-    val levenshteinWordList = Levenshtein(sentence!!, speechResult!!).scoreSentence()
+    val levenshteinWordList = Levenshtein(sentence!!, transcripts!!).scoreSentence()
     Handler(Looper.getMainLooper()).postDelayed({
-      workingFile?.let { WaveHeaderWriter(it, waveConfig).writeHeader() }
-//      for ((key, value) in speechResult) {
-//        Log.i(TAG, "recognize: $key - $value")
-//      }
       val response: WritableMap = WritableNativeMap()
       response.putString("text", sentence)
       response.putString("fidelityClass", "CORRECT")
       val wordScoreList: WritableArray = WritableNativeArray()
       var summaryQualityScore = 0
-      var transcript = ""
       for (levenshteinWord in levenshteinWordList) {
         val wordScore: WritableMap = WritableNativeMap()
         wordScore.putString("word", levenshteinWord.wordScore?.word)
         wordScore.putDouble("qualityScore", levenshteinWord.wordScore!!.percentageOfTextMatch.toDouble())
         wordScore.putDouble("levenshteinScore", levenshteinWord.wordScore!!.levenshteinDistance.toDouble())
         summaryQualityScore += levenshteinWord.wordScore!!.percentageOfTextMatch
-        transcript += "${levenshteinWord.wordScore?.transcript} "
         wordScoreList.pushMap(wordScore)
       }
-
-      response.putString("transcript", transcript)
+      response.putArray("transcripts", transcripts)
       response.putDouble("qualityScore", (summaryQualityScore / levenshteinWordList.size).toDouble())
       response.putArray("wordScoreList", wordScoreList)
 
       val event = Arguments.createMap()
-      event.putString("filePath", workingFile?.absolutePath)
+//      event.putString("filePath", workingFile?.absolutePath)
+//      event.putString("filePath", null)
       event.putMap("response", response)
       event.putDouble("channel", _channel!!)
       sendEvent(moduleEvents.onSpeechRecognized, event)
       state = moduleStates.none
-      workingFile = null
-      speechResult = null
+//      workingFile = null
+      transcripts = null
       emitStateChangeEvent()
     }, 1000)
   }
@@ -295,10 +293,21 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
       ?.emit(eventName, params)
   }
 
+  /**
+   * @return A newly created [AudioRecord], or null if it cannot be created (missing
+   * permissions?).
+   */
+//  private fun createAudioRecord() {
+//    val sizeInBytes = AudioRecord.getMinBufferSize(waveConfig.sampleRate, waveConfig.channels, waveConfig.audioEncoding)
+//
+//    mAudioRecord = AudioRecord(MediaRecorder.AudioSource.MIC, waveConfig.sampleRate, waveConfig.channels, waveConfig.audioEncoding, sizeInBytes)
+//  }
+
   private val mRecognitionListener: RecognitionListener = object : RecognitionListener {
     override fun onReadyForSpeech(arg0: Bundle?) {
+
+//      mAudioRecord?.startRecording()
       val event = Arguments.createMap()
-      event.putBoolean("error", false)
       sendEvent("onSpeechStart", event)
     }
 
@@ -314,14 +323,9 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     }
 
     override fun onBufferReceived(buffer: ByteArray?) {
-      val bufferSize = AudioRecord.getMinBufferSize(
-        16000,
-        AudioFormat.CHANNEL_IN_MONO,
-        AudioFormat.ENCODING_PCM_16BIT
-      )
 
-      val data = ByteArray(bufferSize)
-      outputStream?.write(data)
+//      val size: Int = mAudioRecord!!.read(buffer!!, 0, buffer.size)
+//      outputStream?.write(buffer, 0, size)
     }
 
     override fun onEndOfSpeech() {
@@ -332,21 +336,23 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
 
     override fun onError(errorCode: Int) {
       val errorMessage = String.format("%d/%s", errorCode, getErrorText(errorCode))
-      val event = Arguments.createMap()
-      event.putString("message", errorMessage)
-      event.putDouble("channel", _channel!!)
-      sendEvent(moduleEvents.onError, event)
+      handleErrorEvent(Exception(errorMessage))
     }
 
     override fun onResults(results: Bundle) {
       val matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
 //      val scores = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
-      Log.i(TAG, "onResults: $matches")
-      speechResult = matches
+      for (result in matches!!) {
+        transcripts?.pushString(result)
+      }
+      Log.i(TAG, "onResults: $transcripts")
 
-      outputStream?.close()
+//      outputStream?.close()
+//      mAudioRecord?.stop()
+//      mAudioRecord?.release()
+//      mAudioRecord = null
 
-      if (speechResult != null) {
+      if (transcripts != null) {
         state = moduleStates.recognizing
         emitStateChangeEvent()
         recognize()
@@ -357,11 +363,11 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     }
 
     override fun onPartialResults(results: Bundle) {
-      val matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-      Log.i(TAG, "onPartialResults: $matches")
+//      val matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+//      Log.i(TAG, "onPartialResults: $matches")
 //      if (matches != null) {
 //        for (result in matches) {
-//          arr.pushString(result)
+//          transcripts?.pushString(result)
 //        }
 //      }
 
@@ -388,24 +394,24 @@ class VoiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     }
   }
 
-  private fun buildFile(): File {
-    val path = reactApplicationContext.externalCacheDir?.absolutePath + "/AudioCacheFiles/"
-    val pathAsFile = File(path)
-
-    if (!pathAsFile.isDirectory) {
-      pathAsFile.mkdir()
-    }
-    val fileId = System.currentTimeMillis().toString()
-    val filePath = "$path/$fileId.wav"
-    mTempFiles[fileId] = filePath
-    return File(filePath)
-  }
+//  private fun buildFile(): File {
+//    val path = reactApplicationContext.externalCacheDir?.absolutePath + "/AudioCacheFiles/"
+//    val pathAsFile = File(path)
+//
+//    if (!pathAsFile.isDirectory) {
+//      pathAsFile.mkdir()
+//    }
+//    val fileId = System.currentTimeMillis().toString()
+//    val filePath = "$path/$fileId.wav"
+//    mTempFiles[fileId] = filePath
+//    return File(filePath)
+//  }
 
   private fun releaseResources() {
-    outputStream?.close()
-    outputStream = null
-    workingFile?.delete()
-    workingFile = null
+//    outputStream?.close()
+//    outputStream = null
+//    workingFile?.delete()
+//    workingFile = null
     state = moduleStates.none
   }
 

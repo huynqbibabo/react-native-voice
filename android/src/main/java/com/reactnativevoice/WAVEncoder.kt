@@ -21,6 +21,7 @@ internal class WaveHeaderWriter(private val file: File, private val waveConfig: 
 
   fun writeHeader() {
     val inputStream = file.inputStream()
+
     val totalAudioLen = inputStream.channel.size() - 44
     val totalDataLen = totalAudioLen + 36
     val channels = if (waveConfig.channels == AudioFormat.CHANNEL_IN_MONO)

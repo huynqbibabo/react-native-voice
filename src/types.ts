@@ -24,6 +24,7 @@ export type Options = {
 
 export interface WordScore {
   qualityScore: number;
+  levenshteinScore: number;
   word: string;
 }
 
@@ -32,6 +33,7 @@ export interface TextScore {
   qualityScore: number;
   text?: string;
   wordScoreList?: WordScore[];
+  transcripts?: string[];
 }
 
 export type SpeechEvents = {

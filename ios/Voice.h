@@ -3,6 +3,12 @@
 #import <AVFoundation/AVFoundation.h>
 #import <React/RCTEventEmitter.h>
 #import <React/RCTLog.h>
+#import <React/RCTUtils.h>
+#import <React/RCTEventEmitter.h>
+#import <Speech/Speech.h>
+#import <Accelerate/Accelerate.h>
+#import <MDCDamerauLevenshtein.h>
+
 
 #define kNumberBuffers 3
 #define StateNone @"NONE"
@@ -21,17 +27,31 @@ typedef struct {
 } AQRecordState;
 
 
-@interface Voice : RCTEventEmitter <RCTBridgeModule, AVAudioPlayerDelegate>
+@interface Voice : RCTEventEmitter <RCTBridgeModule, SFSpeechRecognizerDelegate>
 @property (nonatomic, assign) AQRecordState recordState;
 @property (nonatomic, strong) NSString* state;
 @property (nonatomic, strong) NSString* filePath;
-@property (nonatomic, strong) NSString* apiKey;
-@property (nonatomic, strong) NSDictionary* params;
-@property (nonatomic, strong) NSDictionary* formData;
 @property (nonatomic, strong) NSDictionary* configs;
-@property (nonatomic, strong) NSURLSessionTask* requestTask;
 @property (nonatomic, weak) NSNumber *key;
-- (void)audioPlayerDidFinishPlaying:(AVAudioPlayer *)player
-    successfully:(BOOL)flag;
+
+@property (nonatomic, strong) NSRegularExpression *regex;
+@property (nonatomic, strong) NSString *textualString;
+@property (nonatomic, weak) NSArray<NSString *> *contextualStrings;
+@property (nonatomic, strong) SFSpeechRecognizer* speechRecognizer;
+@property (nonatomic, strong) SFSpeechURLRecognitionRequest* recognitionRequest;
+@property (nonatomic, strong) AVAudioEngine* audioEngine;
+@property (nonatomic, strong) SFSpeechRecognitionTask* recognitionTask;
+@property (nonatomic, strong) AVAudioSession* audioSession;
+/** Whether speech recognition is finishing.. */
+@property (nonatomic) BOOL isTearingDown;
+@property (nonatomic) BOOL continuous;
+
+@property (nonatomic) NSString *sessionId;
+/** Previous category the user was on prior to starting speech recognition */
+@property (nonatomic) NSString* priorAudioCategory;
+/** Volume level Metering*/
+@property float averagePowerForChannel0;
+@property float averagePowerForChannel1;
+
 
 @end

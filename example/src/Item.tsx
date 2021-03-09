@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Button, StyleSheet, Text, View } from 'react-native';
 import WordHighlight from './WordHighlight';
 import { useSpeechRecognizer } from 'react-native-voice';
+import { AudioPlayback } from './AudioPlayback';
 
 type Props = {
   text: string;
@@ -15,7 +16,7 @@ export const Item = (props: Props) => {
     stop,
     cancel,
     response,
-    // audioFile,
+    audioFile,
   } = useSpeechRecognizer(props.text, {
     // EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS: 30000,
     // EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: 3000,
@@ -49,11 +50,19 @@ export const Item = (props: Props) => {
             )}
           </View>
         </View>
-
+        {audioFile && <AudioPlayback filePath={audioFile} />}
         <Separator />
       </View>
     );
-  }, [cancel, props.text, response, start, state, stop]);
+  }, [
+    audioFile,
+    cancel,
+    props.text,
+    response?.wordScoreList,
+    start,
+    state,
+    stop,
+  ]);
 };
 
 const styles = StyleSheet.create({
