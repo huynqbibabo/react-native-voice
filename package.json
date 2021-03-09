@@ -1,6 +1,6 @@
 {
   "name": "@bibabo/react-native-voice",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "react native speech to text libraly ",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
